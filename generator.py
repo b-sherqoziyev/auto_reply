@@ -1,7 +1,6 @@
 from telethon.sync import TelegramClient
 from telethon.sessions import StringSession
 
-# API ma'lumotlari
 API_ID = 27620089
 API_HASH = "5108a02b13715f247a66127db0f178ea"
 
