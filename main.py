@@ -21,7 +21,7 @@ channels = {
     -1002331884910: ["Zo'r", "Ha", "Efuzmobile nomr 1", "🧒🏿", "Siuu"],  # efuzmobile
     -1002423336133: ["Zo'r", "Ha", "Efootball next nomr 1", "🧒🏿", "Siuu"],  # efootball next
     -1002739674759: ["Zo'r", "Ha", "Zico nomr 1", "🧒🏿", "Siuu"],  # Zico
-    -1001974475685: ["Ha", "Zo'r", "🧒🏿", "Siuu"],  # efootball page
+    -1001974475685: ["Ha", "Zo'r", "🧒🏿", "Siuu", "Oligarch nomr 1", "Efootballpageuz nomr 1"],  # efootball page
     -1001449117896: ["ha", "🧒🏿", "Siuu"],  # stock
     -1001666463882: ["ha", "eng zo'r kanal", "Siuu"],  # private cr7
     -1001171062015: ["ha", "🧒🏿", "Siuu"]  # aslam
