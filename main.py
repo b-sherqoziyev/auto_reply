@@ -5,7 +5,10 @@ import random
 from dotenv import load_dotenv
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-from telethon.errors import FloodWaitError
+from telethon.errors import (
+    FloodWaitError, UserDeactivatedError, AuthKeyDuplicatedError,
+    ChannelPrivateError, ChatWriteForbiddenError, PeerIdInvalidError
+)
 from database import db
 
 load_dotenv()
@@ -44,50 +47,66 @@ async def send_comment(session, client, name, channel_id, post_id, comment):
         await client.send_message(entity=channel_id, message=comment, comment_to=post_id)
         
         channel_name = cache.entities.get(channel_id, f"ID: {channel_id}")
-        text = f"💬 {name} → {channel_name}\n📨 {comment}"
+        text = f"✅ **{name}** → {channel_name}\n💬 {comment}"
         print(text)
-        # Background task for logging
         asyncio.create_task(send_to_admin(session, text))
         
     except FloodWaitError as e:
-        await send_to_admin(session, f"⏳ {name}: FloodWait {e.seconds}s kutyapti.")
-        await asyncio.sleep(e.seconds + 5)
+        await send_to_admin(session, f"⏳ **{name}**: FloodWait ({e.seconds}s). To'xtatildi.")
+        await asyncio.sleep(e.seconds + 2)
+    except ChatWriteForbiddenError:
+        await send_to_admin(session, f"🚫 **{name}**: [{channel_id}] da yozish taqiqlangan (Banned?).")
+    except ChannelPrivateError:
+        await send_to_admin(session, f"🔒 **{name}**: [{channel_id}] kanal yopiq yoki akkaunt chiqarilgan.")
     except Exception as e:
-        await send_to_admin(session, f"⚠️ {name}: [{channel_id}] xatolik - {e}")
+        await send_to_admin(session, f"⚠️ **{name}**: [{channel_id}] xatolik - {str(e)[:100]}")
 
 async def run_client(session, session_str):
     client = TelegramClient(StringSession(session_str), API_ID, API_HASH)
-    await client.connect()
     
-    if not await client.is_user_authorized():
-        await send_to_admin(session, "❌ Akkaunt session muddati o'tgan yoki noto'g'ri.")
-        return
-
-    me = await client.get_me()
-    name = me.first_name or me.username or "Noma’lum"
-
-    # Pre-fetch entities for extreme speed
-    for channel_id in cache.channels_config.keys():
-        try:
-            entity = await client.get_entity(channel_id)
-            cache.entities[channel_id] = entity.title
-        except Exception:
-            pass
-
-    await send_to_admin(session, f"✅ {name} ishga tushdi!")
-    print(f"{name} ishga tushdi!")
-
-    @client.on(events.NewMessage(chats=list(cache.channels_config.keys())))
-    async def handler(event):
-        channel_id = event.chat_id
-        comments = cache.channels_config.get(channel_id)
+    try:
+        await client.connect()
         
-        if comments:
-            await asyncio.sleep(random.uniform(0.1, 0.5)) # Reduced delay for high speed
-            comment = random.choice(comments)
-            asyncio.create_task(send_comment(session, client, name, channel_id, event.id, comment))
+        if not await client.is_user_authorized():
+            await send_to_admin(session, f"❌ Akkaunt seansi faol emas (Session revoked).")
+            return
 
-    await client.run_until_disconnected()
+        me = await client.get_me()
+        name = f"{me.first_name} {me.last_name or ''}".strip() or "Noma'lum"
+
+        # Check existing memberships to avoid unnecessary errors
+        # Pre-fetch entities only for the channels we are interested in.
+        for ch_id in cache.channels_config.keys():
+            try:
+                entity = await client.get_entity(ch_id)
+                cache.entities[ch_id] = entity.title
+            except Exception:
+                pass
+
+        await send_to_admin(session, f"🚀 **{name}** ishga tushdi va kuzatmoqda!")
+        print(f"[{name}] Monitoring started...")
+
+        @client.on(events.NewMessage(chats=list(cache.channels_config.keys())))
+        async def handler(event):
+            channel_id = event.chat_id
+            comments = cache.channels_config.get(channel_id)
+            
+            if comments:
+                # Random realistic delay
+                await asyncio.sleep(random.uniform(0.1, 0.8))
+                comment = random.choice(comments)
+                asyncio.create_task(send_comment(session, client, name, channel_id, event.id, comment))
+
+        await client.run_until_disconnected()
+
+    except UserDeactivatedError:
+        await send_to_admin(session, f"❌ **Akkaunt o'chirilgan (Banned by Telegram).**")
+    except AuthKeyDuplicatedError:
+        await send_to_admin(session, f"❌ **Sessiya dublikati (Boshqa joyda ochilgan).**")
+    except Exception as e:
+        await send_to_admin(session, f"🔴 **Kritik xatolik ({session_str[:10]}...):** {e}")
+    finally:
+        await client.disconnect()
 
 async def cache_updater_loop():
     """Background task to keep cache fresh every 5 minutes"""
