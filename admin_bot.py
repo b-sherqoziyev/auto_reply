@@ -170,15 +170,15 @@ async def process_password(message: types.Message, state: FSMContext):
 async def manage_channels(callback: types.CallbackQuery):
     channels = await db.get_active_channels()
     builder = InlineKeyboardBuilder()
-    text = "📢 **Kanallar ro'yxati:**\n\n"
+    
+    text = "📢 **Kanallar ro'yxati:**\n\nKommentariya qo'shish yoki boshqarish uchun kanalni tanlang:"
     if not channels:
-        text += "ℹ️ Hech qanday kanal topilmadi."
+        text = "ℹ️ Hech qanday kanal topilmadi."
     else:
         for ch in channels:
-            text += f"• {ch['name']} (`{ch['channel_id']}`)\n"
+            builder.row(types.InlineKeyboardButton(text=f"• {ch['name']}", callback_data=f"view_ch_{ch['channel_id']}"))
     
-    builder.row(types.InlineKeyboardButton(text="➕ Kanal Qo'shish", callback_data="add_channel_start"))
-    builder.row(types.InlineKeyboardButton(text="💬 Komment Qo'shish", callback_data="add_comment_start"))
+    builder.row(types.InlineKeyboardButton(text="➕ Yangi Kanal Qo'shish", callback_data="add_channel_start"))
     builder.row(types.InlineKeyboardButton(text="⬅️ Orqaga", callback_data="main_menu"))
     await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
 
@@ -195,78 +195,150 @@ async def process_channel_id(message: types.Message, state: FSMContext):
         await message.answer("🔗 Endi ushbu kanal havolasini (link) yuboring:", reply_markup=get_cancel_kb())
         await state.set_state(ChannelAddition.waiting_for_link)
     except:
-        await message.answer("❌ Xato ID. Faqat raqamlarni yuboring.")
+        await message.answer("❌ Xato ID.")
 
 @dp.message(ChannelAddition.waiting_for_link)
-async def process_channel_link(message: types.Message, state: FSMContext):
+async def process_channel_link_addition(message: types.Message, state: FSMContext):
     link = message.text.strip()
     data = await state.get_data()
     ch_id = data['ch_id']
     
     accounts = await db.get_active_accounts()
-    if not accounts:
-        await message.answer("❌ Faol akkauntlar yo'q.", reply_markup=get_main_menu())
-        await state.clear()
-        return
-
-    status_msg = await message.answer("⏳ Kanal nomi aniqlanmoqda va akkauntlar qo'shilmoqda...")
+    status_msg = await message.answer("⏳ Kanal nomi aniqlanmoqda...")
     ch_name = "Noma'lum Kanal"
     
-    # Fetch name using the first account
-    client = TelegramClient(StringSession(accounts[0]['session_string']), API_ID, API_HASH)
-    try:
-        await client.connect()
+    if accounts:
+        client = TelegramClient(StringSession(accounts[0]['session_string']), API_ID, API_HASH)
         try:
-            entity = await client.get_entity(link)
-            ch_name = entity.title
-        except:
+            await client.connect()
             try:
-                entity = await client.get_entity(ch_id)
+                entity = await client.get_entity(link)
                 ch_name = entity.title
-            except: pass
-        await db.add_channel(ch_id, ch_name)
-    finally: await client.disconnect()
+            except:
+                try:
+                    entity = await client.get_entity(ch_id)
+                    ch_name = entity.title
+                except: pass
+            await db.add_channel(ch_id, ch_name)
+        finally: await client.disconnect()
 
-    success, fail = 0, 0
-    for acc in accounts:
-        cli = TelegramClient(StringSession(acc['session_string']), API_ID, API_HASH)
-        try:
-            await cli.connect()
-            from telethon.tl.functions.channels import JoinChannelRequest
-            from telethon.tl.functions.messages import ImportChatInviteRequest
-            if "joinchat" in link or "+" in link:
-                await cli(ImportChatInviteRequest(link.split('/')[-1].replace('+', '')))
-            else:
-                await cli(JoinChannelRequest(link))
-            success += 1
-        except: fail += 1
-        finally: await cli.disconnect()
-        
-    await status_msg.edit_text(f"✅ Kanal: **{ch_name}** qo'shildi!\n✅ {success} akkaunt kirdi.\n❌ {fail} xato.", reply_markup=get_main_menu(), parse_mode="Markdown")
+        success, fail = 0, 0
+        await status_msg.edit_text(f"⏳ {ch_name} kanaliga akkauntlar qo'shilmoqda...")
+        for acc in accounts:
+            cli = TelegramClient(StringSession(acc['session_string']), API_ID, API_HASH)
+            try:
+                await cli.connect()
+                from telethon.tl.functions.channels import JoinChannelRequest
+                from telethon.tl.functions.messages import ImportChatInviteRequest
+                if "joinchat" in link or "+" in link:
+                    await cli(ImportChatInviteRequest(link.split('/')[-1].replace('+', '')))
+                else:
+                    await cli(JoinChannelRequest(link))
+                success += 1
+            except: fail += 1
+            finally: await cli.disconnect()
+        await status_msg.edit_text(f"✅ Kanal: **{ch_name}** qo'shildi!\n✅ {success} akkaunt kirdi.\n❌ {fail} xato.", reply_markup=get_main_menu(), parse_mode="Markdown")
+    else:
+        await status_msg.edit_text("❌ Faol akkauntlar yo'q.", reply_markup=get_main_menu())
     await state.clear()
 
-# --- Comment Management ---
-@dp.callback_query(F.data == "add_comment_start")
-async def add_comment_start(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("🆔 Kanal ID sini yuboring:", reply_markup=get_cancel_kb())
-    await state.set_state(CommentAddition.waiting_for_ch_id)
+@dp.callback_query(F.data.startswith("view_ch_"))
+async def view_channel_details(callback: types.CallbackQuery):
+    ch_id = int(callback.data.split("_")[-1])
+    channels = await db.get_active_channels()
+    channel = next((c for c in channels if c['channel_id'] == ch_id), None)
+    
+    if not channel:
+        await callback.answer("❌ Kanal topilmadi.")
+        return
+        
+    comments = await db.get_comments_for_channel(ch_id)
+    text = f"📢 **Kanal:** {channel['name']}\n🆔 **ID:** `{ch_id}`\n\n💬 **Kommentlar soni:** {len(comments)}"
+    
+    builder = InlineKeyboardBuilder()
+    builder.row(types.InlineKeyboardButton(text="➕ Komment Qo'shish", callback_data=f"add_comm_loop_{ch_id}"))
+    builder.row(types.InlineKeyboardButton(text="� Kommentlarni Ko'rish", callback_data=f"list_comm_{ch_id}"))
+    builder.row(types.InlineKeyboardButton(text="�🗑 Kanalni o'chirish", callback_data=f"delete_ch_{ch_id}"))
+    builder.row(types.InlineKeyboardButton(text="⬅️ Orqaga", callback_data="manage_channels"))
+    
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
 
-@dp.message(CommentAddition.waiting_for_ch_id)
-async def process_comment_ch_id(message: types.Message, state: FSMContext):
-    try:
-        ch_id = int(message.text.strip())
-        await state.update_data(ch_id=ch_id)
-        await message.answer("💬 Komment matnini yuboring:", reply_markup=get_cancel_kb())
-        await state.set_state(CommentAddition.waiting_for_text)
-    except:
-        await message.answer("❌ Xato ID.")
+@dp.callback_query(F.data.startswith("list_comm_"))
+async def list_channel_comments(callback: types.CallbackQuery):
+    ch_id = int(callback.data.split("_")[-1])
+    async with db.pool.acquire() as conn:
+        comments = await conn.fetch("SELECT id, text FROM comments WHERE channel_id = $1 ORDER BY id DESC", ch_id)
+    
+    if not comments:
+        await callback.answer("ℹ️ Kommentlar mavjud emas.")
+        return
+        
+    text = f"📑 **Kanal uchun kommentlar ro'yxati:**\n(O'chirish uchun ustiga bosing)\n\n"
+    builder = InlineKeyboardBuilder()
+    for comm in comments:
+        # Show snippet of comment on button
+        snippet = comm['text'][:30] + "..." if len(comm['text']) > 30 else comm['text']
+        builder.row(types.InlineKeyboardButton(text=f"🗑 {snippet}", callback_data=f"del_comm_{comm['id']}_{ch_id}"))
+    
+    builder.row(types.InlineKeyboardButton(text="⬅️ Orqaga", callback_data=f"view_ch_{ch_id}"))
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+
+@dp.callback_query(F.data.startswith("del_comm_"))
+async def delete_comment_handler(callback: types.CallbackQuery):
+    parts = callback.data.split("_")
+    comm_id = int(parts[2])
+    ch_id = int(parts[3])
+    
+    async with db.pool.acquire() as conn:
+        await conn.execute("DELETE FROM comments WHERE id = $1", comm_id)
+    
+    await callback.answer("✅ Komment o'chirildi.")
+    await list_channel_comments(callback)
+
+@dp.callback_query(F.data.startswith("delete_ch_"))
+async def delete_channel(callback: types.CallbackQuery):
+    ch_id = int(callback.data.split("_")[-1])
+    await db.pool.execute("DELETE FROM channels WHERE channel_id = $1", ch_id)
+    await callback.answer("✅ Kanal o'chirildi.")
+    await manage_channels(callback)
+
+# --- Comment Loop FSM ---
+@dp.callback_query(F.data.startswith("add_comm_loop_"))
+async def start_comment_loop(callback: types.CallbackQuery, state: FSMContext):
+    ch_id = int(callback.data.split("_")[-1])
+    await state.update_data(ch_id=ch_id)
+    await callback.message.edit_text("💬 **Komment matnini yuboring:**\n(Navbatma-navbat bir nechta yuborishingiz mumkin)", reply_markup=get_cancel_kb(), parse_mode="Markdown")
+    await state.set_state(CommentAddition.waiting_for_text)
 
 @dp.message(CommentAddition.waiting_for_text)
 async def process_comment_text(message: types.Message, state: FSMContext):
+    await state.update_data(temp_text=message.text)
+    
+    builder = InlineKeyboardBuilder()
+    builder.row(types.InlineKeyboardButton(text="✅ Tasdiqlash", callback_data="conf_comm_yes"))
+    builder.row(types.InlineKeyboardButton(text="🔄 Qayta yozish", callback_data="conf_comm_no"))
+    builder.row(types.InlineKeyboardButton(text="🏁 Tugatish", callback_data="cancel_action"))
+    
+    await message.answer(f"❓ **Ushbu kommentni saqlaymizmi?**\n\n`{message.text}`", reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await state.set_state(CommentAddition.waiting_for_text) # Keep in this state but wait for callback
+
+@dp.callback_query(F.data == "conf_comm_yes")
+async def confirm_comment_yes(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    await db.add_comment(data['ch_id'], message.text)
-    await message.answer("✅ Komment qo'shildi!", reply_markup=get_main_menu())
-    await state.clear()
+    ch_id = data['ch_id']
+    text = data['temp_text']
+    
+    await db.add_comment(ch_id, text)
+    await callback.answer("✅ Saqlandi!")
+    
+    # Prompt for next comment automatically
+    await callback.message.edit_text("✅ Saqlandi! \n\n💬 **Keyingi komment matnini yuboring:**", reply_markup=get_cancel_kb(), parse_mode="Markdown")
+    await state.set_state(CommentAddition.waiting_for_text)
+
+@dp.callback_query(F.data == "conf_comm_no")
+async def confirm_comment_no(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.edit_text("🔄 Qayta yozing:\n\n💬 **Komment matnini yuboring:**", reply_markup=get_cancel_kb(), parse_mode="Markdown")
+    await state.set_state(CommentAddition.waiting_for_text)
 
 # --- Bulk Join ---
 @dp.callback_query(F.data == "join_all_start")
