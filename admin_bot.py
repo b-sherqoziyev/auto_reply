@@ -1,5 +1,6 @@
 import os
 import asyncio
+import html
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -73,7 +74,7 @@ async def manage_accounts(callback: types.CallbackQuery):
     accounts = await db.pool.fetch("SELECT id, name, phone, is_active FROM accounts ORDER BY id ASC")
     builder = InlineKeyboardBuilder()
     
-    text = "👥 **Akkauntlar ro'yxati:**\n\n"
+    text = "👥 <b>Akkauntlar ro'yxati:</b>\n\n"
     if not accounts:
         text += "ℹ️ Hech qanday akkaunt topilmadi."
     else:
@@ -83,7 +84,7 @@ async def manage_accounts(callback: types.CallbackQuery):
             builder.row(types.InlineKeyboardButton(text=btn_text, callback_data=f"toggle_acc_{acc['id']}"))
     
     builder.row(types.InlineKeyboardButton(text="⬅️ Orqaga", callback_data="main_menu"))
-    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("toggle_acc_"))
 async def toggle_account(callback: types.CallbackQuery):
@@ -171,7 +172,7 @@ async def manage_channels(callback: types.CallbackQuery):
     channels = await db.get_active_channels()
     builder = InlineKeyboardBuilder()
     
-    text = "📢 **Kanallar ro'yxati:**\n\nKommentariya qo'shish yoki boshqarish uchun kanalni tanlang:"
+    text = "📢 <b>Kanallar ro'yxati:</b>\n\nKommentariya qo'shish yoki boshqarish uchun kanalni tanlang:"
     if not channels:
         text = "ℹ️ Hech qanday kanal topilmadi."
     else:
@@ -180,7 +181,7 @@ async def manage_channels(callback: types.CallbackQuery):
     
     builder.row(types.InlineKeyboardButton(text="➕ Yangi Kanal Qo'shish", callback_data="add_channel_start"))
     builder.row(types.InlineKeyboardButton(text="⬅️ Orqaga", callback_data="main_menu"))
-    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
 @dp.callback_query(F.data == "add_channel_start")
 async def add_channel_start(callback: types.CallbackQuery, state: FSMContext):
@@ -237,7 +238,7 @@ async def process_channel_link_addition(message: types.Message, state: FSMContex
                 success += 1
             except: fail += 1
             finally: await cli.disconnect()
-        await status_msg.edit_text(f"✅ Kanal: **{ch_name}** qo'shildi!\n✅ {success} akkaunt kirdi.\n❌ {fail} xato.", reply_markup=get_main_menu(), parse_mode="Markdown")
+        await status_msg.edit_text(f"✅ Kanal: <b>{html.escape(ch_name)}</b> qo'shildi!\n✅ {success} akkaunt kirdi.\n❌ {fail} xato.", reply_markup=get_main_menu(), parse_mode="HTML")
     else:
         await status_msg.edit_text("❌ Faol akkauntlar yo'q.", reply_markup=get_main_menu())
     await state.clear()
@@ -253,7 +254,7 @@ async def view_channel_details(callback: types.CallbackQuery):
         return
         
     comments = await db.get_comments_for_channel(ch_id)
-    text = f"📢 **Kanal:** {channel['name']}\n🆔 **ID:** `{ch_id}`\n\n💬 **Kommentlar soni:** {len(comments)}"
+    text = f"📢 <b>Kanal:</b> {html.escape(channel['name'])}\n🆔 <b>ID:</b> <code>{ch_id}</code>\n\n💬 <b>Kommentlar soni:</b> {len(comments)}"
     
     builder = InlineKeyboardBuilder()
     builder.row(types.InlineKeyboardButton(text="➕ Komment Qo'shish", callback_data=f"add_comm_loop_{ch_id}"))
@@ -261,7 +262,7 @@ async def view_channel_details(callback: types.CallbackQuery):
     builder.row(types.InlineKeyboardButton(text="�🗑 Kanalni o'chirish", callback_data=f"delete_ch_{ch_id}"))
     builder.row(types.InlineKeyboardButton(text="⬅️ Orqaga", callback_data="manage_channels"))
     
-    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("list_comm_"))
 async def list_channel_comments(callback: types.CallbackQuery):
@@ -273,7 +274,7 @@ async def list_channel_comments(callback: types.CallbackQuery):
         await callback.answer("ℹ️ Kommentlar mavjud emas.")
         return
         
-    text = f"📑 **Kanal uchun kommentlar ro'yxati:**\n(O'chirish uchun ustiga bosing)\n\n"
+    text = f"📑 <b>Kanal uchun kommentlar ro'yxati:</b>\n(O'chirish uchun ustiga bosing)\n\n"
     builder = InlineKeyboardBuilder()
     for comm in comments:
         # Show snippet of comment on button
@@ -281,7 +282,7 @@ async def list_channel_comments(callback: types.CallbackQuery):
         builder.row(types.InlineKeyboardButton(text=f"🗑 {snippet}", callback_data=f"del_comm_{comm['id']}_{ch_id}"))
     
     builder.row(types.InlineKeyboardButton(text="⬅️ Orqaga", callback_data=f"view_ch_{ch_id}"))
-    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("del_comm_"))
 async def delete_comment_handler(callback: types.CallbackQuery):
@@ -307,7 +308,7 @@ async def delete_channel(callback: types.CallbackQuery):
 async def start_comment_loop(callback: types.CallbackQuery, state: FSMContext):
     ch_id = int(callback.data.split("_")[-1])
     await state.update_data(ch_id=ch_id)
-    await callback.message.edit_text("💬 **Komment matnini yuboring:**\n(Navbatma-navbat bir nechta yuborishingiz mumkin)", reply_markup=get_cancel_kb(), parse_mode="Markdown")
+    await callback.message.edit_text("💬 <b>Komment matnini yuboring:</b>\n(Navbatma-navbat bir nechta yuborishingiz mumkin)", reply_markup=get_cancel_kb(), parse_mode="HTML")
     await state.set_state(CommentAddition.waiting_for_text)
 
 @dp.message(CommentAddition.waiting_for_text)
@@ -319,7 +320,7 @@ async def process_comment_text(message: types.Message, state: FSMContext):
     builder.row(types.InlineKeyboardButton(text="🔄 Qayta yozish", callback_data="conf_comm_no"))
     builder.row(types.InlineKeyboardButton(text="🏁 Tugatish", callback_data="cancel_action"))
     
-    await message.answer(f"❓ **Ushbu kommentni saqlaymizmi?**\n\n`{message.text}`", reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await message.answer(f"❓ <b>Ushbu kommentni saqlaymizmi?</b>\n\n<code>{html.escape(message.text)}</code>", reply_markup=builder.as_markup(), parse_mode="HTML")
     await state.set_state(CommentAddition.waiting_for_text) # Keep in this state but wait for callback
 
 @dp.callback_query(F.data == "conf_comm_yes")
@@ -332,12 +333,12 @@ async def confirm_comment_yes(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer("✅ Saqlandi!")
     
     # Prompt for next comment automatically
-    await callback.message.edit_text("✅ Saqlandi! \n\n💬 **Keyingi komment matnini yuboring:**", reply_markup=get_cancel_kb(), parse_mode="Markdown")
+    await callback.message.edit_text("✅ Saqlandi! \n\n💬 <b>Keyingi komment matnini yuboring:</b>", reply_markup=get_cancel_kb(), parse_mode="HTML")
     await state.set_state(CommentAddition.waiting_for_text)
 
 @dp.callback_query(F.data == "conf_comm_no")
 async def confirm_comment_no(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("🔄 Qayta yozing:\n\n💬 **Komment matnini yuboring:**", reply_markup=get_cancel_kb(), parse_mode="Markdown")
+    await callback.message.edit_text("🔄 Qayta yozing:\n\n💬 <b>Komment matnini yuboring:</b>", reply_markup=get_cancel_kb(), parse_mode="HTML")
     await state.set_state(CommentAddition.waiting_for_text)
 
 # --- Bulk Join ---
