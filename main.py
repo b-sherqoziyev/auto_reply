@@ -46,7 +46,15 @@ async def send_comment(session, client, name, channel_id, post_id, comment):
         # Zero-latency: directly send using cached info
         await client.send_message(entity=channel_id, message=comment, comment_to=post_id)
         
-        channel_name = cache.entities.get(channel_id, f"ID: {channel_id}")
+        channel_name = cache.entities.get(channel_id)
+        if not channel_name:
+            try:
+                entity = await client.get_entity(channel_id)
+                channel_name = entity.title
+                cache.entities[channel_id] = channel_name
+            except Exception:
+                channel_name = f"ID: {channel_id}"
+
         text = f"✅ **{name}** → {channel_name}\n💬 {comment}"
         print(text)
         asyncio.create_task(send_to_admin(session, text))
@@ -86,7 +94,7 @@ async def run_client(session, session_str):
         await send_to_admin(session, f"🚀 **{name}** ishga tushdi va kuzatmoqda!")
         print(f"[{name}] Monitoring started...")
 
-        @client.on(events.NewMessage(chats=list(cache.channels_config.keys())))
+        @client.on(events.NewMessage())
         async def handler(event):
             channel_id = event.chat_id
             comments = cache.channels_config.get(channel_id)
@@ -109,10 +117,10 @@ async def run_client(session, session_str):
         await client.disconnect()
 
 async def cache_updater_loop():
-    """Background task to keep cache fresh every 5 minutes"""
+    """Background task to keep cache fresh every minute"""
     while True:
         await update_cache()
-        await asyncio.sleep(300)
+        await asyncio.sleep(60)
 
 async def main():
     await db.connect()
