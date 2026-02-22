@@ -69,7 +69,7 @@ async def send_comment(session, client, name, channel_id, post_id, comment):
     except Exception as e:
         await send_to_admin(session, f"⚠️ **{name}**: [{channel_id}] xatolik - {str(e)[:100]}")
 
-async def run_client(session, session_str):
+async def run_client(session, session_str, account_index, total_accounts):
     client = TelegramClient(StringSession(session_str), API_ID, API_HASH)
     
     try:
@@ -82,8 +82,7 @@ async def run_client(session, session_str):
         me = await client.get_me()
         name = f"{me.first_name} {me.last_name or ''}".strip() or "Noma'lum"
 
-        # Check existing memberships to avoid unnecessary errors
-        # Pre-fetch entities only for the channels we are interested in.
+        # Pre-fetch entities for current config
         for ch_id in cache.channels_config.keys():
             try:
                 entity = await client.get_entity(ch_id)
@@ -91,7 +90,7 @@ async def run_client(session, session_str):
             except Exception:
                 pass
 
-        await send_to_admin(session, f"🚀 **{name}** ishga tushdi va kuzatmoqda!")
+        await send_to_admin(session, f"🚀 **{name}** ishga tushdi (Idx: {account_index})!")
         print(f"[{name}] Monitoring started...")
 
         @client.on(events.NewMessage())
@@ -100,8 +99,26 @@ async def run_client(session, session_str):
             comments = cache.channels_config.get(channel_id)
             
             if comments:
-                # Random realistic delay
-                await asyncio.sleep(random.uniform(0.1, 0.8))
+                # ADVANCED ANTI-DETECTION: Seeded randomization per message
+                # All running clients will generate the SAME random order for the SAME message ID
+                rng = random.Random(event.id)
+                order = list(range(total_accounts))
+                rng.shuffle(order)
+                
+                # Determine this account's position in the current post's queue
+                my_pos = order.index(account_index)
+                
+                if my_pos == 0:
+                    total_delay = 0 # This post's sniper
+                else:
+                    # Staggered delay based on position
+                    base_delay = my_pos * 0.5 
+                    human_jitter = random.uniform(0.1, 0.4) 
+                    total_delay = base_delay + human_jitter
+                
+                if total_delay > 0:
+                    await asyncio.sleep(total_delay)
+                
                 comment = random.choice(comments)
                 asyncio.create_task(send_comment(session, client, name, channel_id, event.id, comment))
 
@@ -135,7 +152,11 @@ async def main():
         # Background cache updater
         asyncio.create_task(cache_updater_loop())
         
-        tasks = [asyncio.create_task(run_client(session, acc['session_string'])) for acc in accounts]
+        # Start accounts with their index and total count
+        tasks = [
+            asyncio.create_task(run_client(session, acc['session_string'], idx, len(accounts))) 
+            for idx, acc in enumerate(accounts)
+        ]
         await asyncio.gather(*tasks)
 
 if __name__ == "__main__":
