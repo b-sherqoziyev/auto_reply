@@ -42,32 +42,33 @@ async def send_to_admin(session, text: str):
         print(f"⚠️ Admin log yuborilmadi: {e}")
 
 async def send_comment(session, client, name, channel_id, post_id, comment):
+    # Resolve channel name first so it's available in success or error logs
+    channel_name = cache.entities.get(channel_id)
+    if not channel_name:
+        try:
+            entity = await client.get_entity(channel_id)
+            channel_name = entity.title
+            cache.entities[channel_id] = channel_name
+        except Exception:
+            channel_name = f"ID: {channel_id}"
+
     try:
         # Zero-latency: directly send using cached info
         await client.send_message(entity=channel_id, message=comment, comment_to=post_id)
         
-        channel_name = cache.entities.get(channel_id)
-        if not channel_name:
-            try:
-                entity = await client.get_entity(channel_id)
-                channel_name = entity.title
-                cache.entities[channel_id] = channel_name
-            except Exception:
-                channel_name = f"ID: {channel_id}"
-
         text = f"✅ **{name}** → {channel_name}\n💬 {comment}"
         print(text)
         asyncio.create_task(send_to_admin(session, text))
         
     except FloodWaitError as e:
-        await send_to_admin(session, f"⏳ **{name}**: FloodWait ({e.seconds}s). To'xtatildi.")
+        await send_to_admin(session, f"⏳ **{name}**: FloodWait ({e.seconds}s) @ {channel_name}. To'xtatildi.")
         await asyncio.sleep(e.seconds + 2)
     except ChatWriteForbiddenError:
-        await send_to_admin(session, f"🚫 **{name}**: [{channel_id}] da yozish taqiqlangan (Banned?).")
+        await send_to_admin(session, f"🚫 **{name}**: {channel_name} da yozish taqiqlangan (Banned?).")
     except ChannelPrivateError:
-        await send_to_admin(session, f"🔒 **{name}**: [{channel_id}] kanal yopiq yoki akkaunt chiqarilgan.")
+        await send_to_admin(session, f"🔒 **{name}**: {channel_name} kanal yopiq yoki akkaunt chiqarilgan.")
     except Exception as e:
-        await send_to_admin(session, f"⚠️ **{name}**: [{channel_id}] xatolik - {str(e)[:100]}")
+        await send_to_admin(session, f"⚠️ **{name}**: {channel_name} xatolik - {str(e)[:100]}")
 
 async def run_client(session, session_str, account_index, total_accounts):
     client = TelegramClient(StringSession(session_str), API_ID, API_HASH)
