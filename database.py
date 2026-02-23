@@ -46,6 +46,16 @@ class Database:
                     text TEXT NOT NULL
                 )
             ''')
+            # Restrictions table
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS restrictions (
+                    id SERIAL PRIMARY KEY,
+                    session_string TEXT NOT NULL,
+                    channel_id BIGINT NOT NULL,
+                    until_date TIMESTAMP,
+                    UNIQUE(session_string, channel_id)
+                )
+            ''')
 
     # Account operations
     async def add_account(self, session_string, name=None, phone=None):
@@ -96,5 +106,27 @@ class Database:
                 if comments:
                     config[channel_id] = comments
             return config
+
+    # Restriction operations
+    async def add_restriction(self, session_string, channel_id, until_date=None):
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO restrictions (session_string, channel_id, until_date) VALUES ($1, $2, $3)
+                   ON CONFLICT (session_string, channel_id) DO UPDATE SET until_date = EXCLUDED.until_date""",
+                session_string, channel_id, until_date
+            )
+
+    async def is_restricted(self, session_string, channel_id):
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """SELECT until_date FROM restrictions 
+                   WHERE session_string = $1 AND channel_id = $2 AND (until_date IS NULL OR until_date > CURRENT_TIMESTAMP)""",
+                session_string, channel_id
+            )
+            return row is not None
+
+    async def get_all_restrictions(self):
+        async with self.pool.acquire() as conn:
+            return await conn.fetch("SELECT session_string, channel_id, until_date FROM restrictions WHERE until_date IS NULL OR until_date > CURRENT_TIMESTAMP")
 
 db = Database()
